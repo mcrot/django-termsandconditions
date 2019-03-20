@@ -2,6 +2,7 @@
 
 {% load staticfiles %}
 {% load i18n %}
+{% load terms_tags %}
 
 {% block title %}{% trans 'Accept Terms and Conditions' %}{% endblock %}
 {% block styles %}
@@ -34,7 +35,14 @@
             {% csrf_token %}
             {{ form.terms }}
             {{ form.returnTo }}
-            <p><input type="submit" value="{% trans 'Accept' %}{% if form.initial.terms|length > 1 %} {% trans 'All' %}{% endif %}" data-role="button"></p>
+            <p>
+                <input type="submit" value="{% trans 'Accept' %}" data-role="button">
+                {% with form.initial.terms|first|is_optional as first_terms_optional %}
+                {% if form.initial.terms|length_is:"1" and first_terms_optional %}
+                    <input type="submit" name="not_now" value="{% trans 'Not now' %}" data-role="button">
+                {% endif %}
+                {% endwith %}
+            </p>
         </form>
     </section>
 {% endblock %}

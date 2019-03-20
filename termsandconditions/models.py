@@ -14,6 +14,8 @@ else:
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
+from django.db.models import Q
 
 import logging
 
@@ -23,13 +25,25 @@ DEFAULT_TERMS_SLUG = getattr(settings, 'DEFAULT_TERMS_SLUG', 'site-terms')
 TERMS_CACHE_SECONDS = getattr(settings, 'TERMS_CACHE_SECONDS', 30)
 TERMS_EXCLUDE_USERS_WITH_PERM = getattr(settings, 'TERMS_EXCLUDE_USERS_WITH_PERM', None)
 
+SKIP_OPTIONAL_CACHE_KEY_SUFFIX = "_skip_optional"
+SKIP_SEEN_CACHE_KEY_SUFFIX = "_skip_seen"
 
 class UserTermsAndConditions(models.Model):
-    """Holds mapping between TermsAndConditions and Users"""
+    """Holds mapping between TermsAndConditions and Users
+
+    An entry means:
+
+    - terms have been presented to the user
+    - for mandatory terms: terms have been accepted (date_accepted must be set)
+    - for optional terms: terms are either accepted (date_accepted is set)
+                          or not accepted yet ((date_accepted is None)
+
+    Accepted terms have an non-null value for date_accepted.
+    """
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="userterms", on_delete=models.CASCADE)
     terms = models.ForeignKey("TermsAndConditions", related_name="userterms", on_delete=models.CASCADE)
     ip_address = models.GenericIPAddressField(null=True, blank=True, verbose_name=_('IP Address'))
-    date_accepted = models.DateTimeField(auto_now_add=True, verbose_name=_('Date Accepted'))
+    date_accepted = models.DateTimeField(null=True, blank=True, default=timezone.now, verbose_name=_('Date Accepted'))
 
     class Meta:
         """Model Meta Information"""
@@ -41,10 +55,21 @@ class UserTermsAndConditions(models.Model):
     def __str__(self):  # pragma: nocover
         return "{0}:{1}-{2:.2f}".format(self.user.get_username(), self.terms.slug, self.terms.version_number)
 
+    def clean(self, *args, **kwargs):
+        """Ensure these are no mandatory terms with date_accepted==None.
+
+        This is used e.g. when saving in the Admin site.
+        """
+        if (self.date_accepted is None) and not self.terms.optional:
+            raise ValidationError("Mapping between users and mandatory terms must have 'date_accepted' set.")
+
+        super().clean(*args, **kwargs)
 
 class TermsAndConditions(models.Model):
     """Holds Versions of TermsAndConditions
-    Active one for a given slug is: date_active is not Null and is latest not in future"""
+    Active one for a given slug is: date_active is not Null and is latest not in future
+    Optional terms: Requested if active, but their acceptance is not mandatory for using the site
+    """
     slug = models.SlugField(default=DEFAULT_TERMS_SLUG)
     name = models.TextField(max_length=255)
     users = models.ManyToManyField(settings.AUTH_USER_MODEL, through=UserTermsAndConditions, blank=True)
@@ -55,6 +80,7 @@ class TermsAndConditions(models.Model):
     )
     date_active = models.DateTimeField(blank=True, null=True, help_text=_("Leave Null To Never Make Active"))
     date_created = models.DateTimeField(blank=True, auto_now_add=True)
+    optional = models.BooleanField(default=False)
 
     class Meta:
         """Model Meta Information"""
@@ -123,24 +149,44 @@ class TermsAndConditions(models.Model):
         return active_terms_list
 
     @staticmethod
-    def get_active_terms_not_agreed_to(user):
-        """Checks to see if a specified user has agreed to all the latest terms and conditions"""
+    def get_active_terms_not_agreed_to(user, skip_optional=False):
+        """Checks to see if a specified user has agreed to all the latest terms and conditions
+
+        If you skip optional terms, they won't be returned here even if they're active.
+
+        However only those optional terms will be returned which have not been shown yet.
+        Optional terms which have a database entry for a user are always excluded from the result.
+        """
 
         if TERMS_EXCLUDE_USERS_WITH_PERM is not None:
             if user.has_perm(TERMS_EXCLUDE_USERS_WITH_PERM) and not user.is_superuser:
                 # Django's has_perm() returns True if is_superuser, we don't want that
                 return []
 
-        not_agreed_terms = cache.get('tandc.not_agreed_terms_' + user.get_username())
+        cache_key_suffix = SKIP_OPTIONAL_CACHE_KEY_SUFFIX if skip_optional else ""
+
+        not_agreed_terms = cache.get('tandc.not_agreed_terms_' + user.get_username() + cache_key_suffix)
         if not_agreed_terms is None:
             try:
                 LOGGER.debug("Not Agreed Terms")
+                # exclude all terms which have been seen and accepted
                 not_agreed_terms = TermsAndConditions.get_active_terms_list().exclude(
-                    userterms__in=UserTermsAndConditions.objects.filter(user=user)
-                ).order_by('slug')
+                    userterms__in=UserTermsAndConditions.objects.filter(user=user, date_accepted__isnull=False))
 
-                cache.set('tandc.not_agreed_terms_' + user.get_username(), not_agreed_terms, TERMS_CACHE_SECONDS)
-            except (TypeError, UserTermsAndConditions.DoesNotExist):
+                # optionally also exclude the optional terms which have been seen but not accepted
+                # Always exclude optional terms already seen.
+                optional_cond = Q(optional=True)
+                if not skip_optional:
+                    # always skip optionals already seen
+                    optional_cond &= Q(userterms__in=UserTermsAndConditions.objects.filter(user=user))
+
+                not_agreed_terms = not_agreed_terms.exclude(optional_cond)
+
+                not_agreed_terms = not_agreed_terms.order_by('slug')
+
+                cache.set('tandc.not_agreed_terms_' + user.get_username() + cache_key_suffix,
+                          not_agreed_terms, TERMS_CACHE_SECONDS)
+            except (TypeError, UserTermsAndConditions.DoesNotExist) as exc:
                 return []
 
         return not_agreed_terms

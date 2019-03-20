@@ -5,7 +5,7 @@
 import logging
 from django.core.cache import cache
 from django.dispatch import receiver
-from .models import TermsAndConditions, UserTermsAndConditions
+from .models import TermsAndConditions, UserTermsAndConditions, SKIP_OPTIONAL_CACHE_KEY_SUFFIX
 from django.db.models.signals import post_delete, post_save
 
 LOGGER = logging.getLogger(name='termsandconditions')
@@ -16,7 +16,9 @@ def user_terms_updated(sender, **kwargs):
     """Called when user terms and conditions is changed - to force cache clearing"""
     LOGGER.debug("User T&C Updated Signal Handler")
     if kwargs.get('instance').user:
-        cache.delete('tandc.not_agreed_terms_' + kwargs.get('instance').user.get_username())
+        cache_key = 'tandc.not_agreed_terms_' + kwargs.get('instance').user.get_username()
+        cache.delete(cache_key)
+        cache.delete(cache_key+SKIP_OPTIONAL_CACHE_KEY_SUFFIX)
 
 
 @receiver([post_delete, post_save], sender=TermsAndConditions)
@@ -28,4 +30,6 @@ def terms_updated(sender, **kwargs):
     if kwargs.get('instance').slug:
         cache.delete('tandc.active_terms_' + kwargs.get('instance').slug)
     for utandc in UserTermsAndConditions.objects.all():
-        cache.delete('tandc.not_agreed_terms_' + utandc.user.get_username())
+        cache_key = 'tandc.not_agreed_terms_' + utandc.user.get_username()
+        cache.delete(cache_key)
+        cache.delete(cache_key+SKIP_OPTIONAL_CACHE_KEY_SUFFIX)

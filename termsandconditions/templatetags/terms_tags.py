@@ -12,17 +12,22 @@ TERMS_HTTP_PATH_FIELD = getattr(settings, 'TERMS_HTTP_PATH_FIELD', DEFAULT_HTTP_
 
 @register.inclusion_tag('termsandconditions/snippets/termsandconditions.html',
                         takes_context=True)
-def show_terms_if_not_agreed(context, field=TERMS_HTTP_PATH_FIELD):
+def show_terms_if_not_agreed(context, field=TERMS_HTTP_PATH_FIELD, skip_optional=False):
     """Displays a modal on a current page if a user has not yet agreed to the
     given terms. If terms are not specified, the default slug is used.
 
     A small snippet is included into your template if a user
     who requested the view has not yet agreed the terms. The snippet takes
     care of displaying a respective modal.
+
+    If skip_optional is False, also optional terms will be shown.
+    Default is True, i.e. not to show optional terms.
     """
+
     request = context['request']
     url = urlparse(request.META[field])
-    not_agreed_terms = TermsAndConditions.get_active_terms_not_agreed_to(request.user)
+    not_agreed_terms = TermsAndConditions.get_active_terms_not_agreed_to(request.user,
+                                                                         skip_optional=skip_optional)
 
     if not_agreed_terms and is_path_protected(url.path):
         return {'not_agreed_terms': not_agreed_terms, 'returnTo': url.path}
@@ -48,3 +53,12 @@ def as_template(obj):
     ...
     """
     return template.Template(obj)
+
+@register.filter
+def is_optional(terms):
+    """Returns whether a given terms instance is optional
+
+    :param terms:
+    :return:
+    """
+    return terms.optional

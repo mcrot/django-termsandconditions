@@ -14,6 +14,7 @@ from django.http import HttpResponseRedirect
 from django.views.generic import DetailView, CreateView, FormView
 from django.template.loader import get_template
 from django.core.mail import send_mail
+from django.utils import timezone
 import logging
 from smtplib import SMTPException
 
@@ -118,14 +119,18 @@ class AcceptTermsView(CreateView, GetTermsViewMixin):
         else:
             ip_address = ""
 
+        if request.POST.get("not_now"): # would be sent by "Not now" button for optional t&c
+            date_accepted = None # this means "seen", but not accepted
+        else:
+            date_accepted = timezone.now() # this means "seen+accepted"
+
         for terms_id in terms_ids:
             try:
-                new_user_terms = UserTermsAndConditions(
-                    user=user,
-                    terms=TermsAndConditions.objects.get(pk=int(terms_id)),
-                    ip_address=ip_address
-                )
-                new_user_terms.save()
+                terms = TermsAndConditions.objects.get(pk=int(terms_id))
+                user_terms, created = UserTermsAndConditions.objects.get_or_create(user=user, terms=terms)
+                user_terms.ip_address = ip_address
+                user_terms.date_accepted = date_accepted
+                user_terms.save()
             except IntegrityError:  # pragma: nocover
                 pass
 

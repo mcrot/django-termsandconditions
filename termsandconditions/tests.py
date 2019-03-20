@@ -43,6 +43,12 @@ class TermsAndConditionsTests(TestCase):
         self.terms4 = TermsAndConditions.objects.create(id=4, slug="contrib-terms", name="Contributor Terms",
                                                         text="Contributor Terms and Conditions 2", version_number=2.0,
                                                         date_active="2100-01-01")
+        self.terms5 = TermsAndConditions.objects.create(id=5, slug="optional-terms", name="Optional Terms",
+                                                        text="Optional Terms and Conditions 1.6", version_number=1.6,
+                                                        date_active="2012-02-01", optional=True)
+        self.terms6 = TermsAndConditions.objects.create(id=6, slug="optional-terms", name="Optional Terms",
+                                                        text="Optional Terms and Conditions 2", version_number=2.0,
+                                                        date_active="2100-02-01", optional=True)
 
         # give user3 permission to skip T&Cs
         content_type = ContentType.objects.get_for_model(type(self.user3))
@@ -63,21 +69,22 @@ class TermsAndConditionsTests(TestCase):
         response = user_accept_terms('backend', self.user1, '123')
         self.assertIsInstance(response, HttpResponseRedirect)
 
-        # Accept the terms and try again
+        # Accept the mandatory terms, mark optional terms as seen, and try again
         UserTermsAndConditions.objects.create(user=self.user1, terms=self.terms2)
         UserTermsAndConditions.objects.create(user=self.user1, terms=self.terms3)
+        UserTermsAndConditions.objects.create(user=self.user1, terms=self.terms5, date_accepted=None) # optional
         response = user_accept_terms('backend', self.user1, '123')
         self.assertIsInstance(response, dict)
 
     def test_get_active_terms_list(self):
         """Test get list of active T&Cs"""
         active_list = TermsAndConditions.get_active_terms_list()
-        self.assertEqual(2, len(active_list))
-        self.assertQuerysetEqual(active_list, [repr(self.terms3), repr(self.terms2)])
+        self.assertEqual(3, len(active_list))
+        self.assertQuerysetEqual(active_list, [repr(self.terms3), repr(self.terms5), repr(self.terms2)])
 
-    def test_get_active_terms_not_agreed_to(self):
-        """Test get T&Cs not agreed to"""
-        active_list = TermsAndConditions.get_active_terms_not_agreed_to(self.user1)
+    def test_get_active_terms_not_agreed_to_only_mandatory(self):
+        """Test get mandatory T&Cs not agreed to"""
+        active_list = TermsAndConditions.get_active_terms_not_agreed_to(self.user1, skip_optional=True)
         self.assertEqual(2, len(active_list))
         self.assertQuerysetEqual(active_list, [repr(self.terms3), repr(self.terms2)])
 
@@ -88,22 +95,22 @@ class TermsAndConditionsTests(TestCase):
 
     def test_superuser_is_not_implicitly_excluded(self):
         """Test su should have to accept T&Cs even if they are superuser but don't explicitly have the skip perm"""
-        active_list = TermsAndConditions.get_active_terms_not_agreed_to(self.su)
+        active_list = TermsAndConditions.get_active_terms_not_agreed_to(self.su, skip_optional=True)
         self.assertEqual(2, len(active_list))
         self.assertQuerysetEqual(active_list, [repr(self.terms3), repr(self.terms2)])
 
     def test_superuser_cannot_skip(self):
         """Test su still has to accept even if they are explicitly given the skip perm"""
         self.su.user_permissions.add(self.skip_perm)
-        active_list = TermsAndConditions.get_active_terms_not_agreed_to(self.su)
+        active_list = TermsAndConditions.get_active_terms_not_agreed_to(self.su, skip_optional=True)
         self.assertEqual(2, len(active_list))
         self.assertQuerysetEqual(active_list, [repr(self.terms3), repr(self.terms2)])
 
     def test_get_active_terms_ids(self):
         """Test get ids of active T&Cs"""
         active_list = TermsAndConditions.get_active_terms_ids()
-        self.assertEqual(2, len(active_list))
-        self.assertEqual(active_list, [3, 2])
+        self.assertEqual(3, len(active_list))
+        self.assertEqual(active_list, [3, 5, 2])
 
     def test_terms_and_conditions_models(self):
         """Various tests of the TermsAndConditions Module"""
@@ -162,7 +169,10 @@ class TermsAndConditionsTests(TestCase):
         self.assertContains(terms_required_response, "Please Accept")
 
     def test_accept(self):
-        """Validate that accepting terms works"""
+        """Validate that accepting non-optional terms works"""
+
+        # First mark optional terms as accepted, so we won't be asked here
+        UserTermsAndConditions.objects.create(user=self.user1, terms=self.terms5)
 
         LOGGER.debug('Test user1 login for accept')
         login_response = self.client.login(username='user1', password='user1password')
@@ -176,13 +186,75 @@ class TermsAndConditionsTests(TestCase):
         chained_terms_response = self.client.post('/terms/accept/', {'terms': 2, 'returnTo': '/secure/'}, follow=True)
         self.assertContains(chained_terms_response, "Contributor")
 
-        LOGGER.debug('Test /terms/accept/contrib-terms/1.5/ post')
+        LOGGER.debug('Test /terms/accept/contrib-terms/1.5/ get')
         accept_version_response = self.client.get('/terms/accept/contrib-terms/1.5/', follow=True)
         self.assertContains(accept_version_response, "Contributor Terms and Conditions 1.5")
 
         LOGGER.debug('Test /terms/accept/contrib-terms/3/ post')
         accept_version_post_response = self.client.post('/terms/accept/', {'terms': 3, 'returnTo': '/secure/'}, follow=True)
         self.assertContains(accept_version_post_response, "Secure")
+
+    def _test_optional_common(self):
+
+        # Accept the mandatory terms first
+        UserTermsAndConditions.objects.create(user=self.user1, terms=self.terms2)
+        UserTermsAndConditions.objects.create(user=self.user1, terms=self.terms3)
+
+        LOGGER.debug('Test user1 login for accept')
+        login_response = self.client.login(username='user1', password='user1password')
+        self.assertTrue(login_response)
+
+        LOGGER.debug('Test /terms/accept/optional-terms/1.6/ get')
+        accept_version_response = self.client.get('/terms/accept/optional-terms/1.6', follow=True)
+        self.assertContains(accept_version_response, "Optional Terms and Conditions 1.6")
+        self.assertContains(accept_version_response, "Accept")
+        self.assertContains(accept_version_response, "Not now")  # it should be possible to proceed without accepting
+
+    def test_accept_optional(self):
+        """Validate that accepting optional terms works"""
+
+        self._test_optional_common()
+
+        LOGGER.debug('Test /terms/accept/contrib-terms/5/ post')
+        accept_version_post_response = self.client.post('/terms/accept/', {'terms': 5, 'returnTo': '/secure/'},
+                                                        follow=True)
+        self.assertContains(accept_version_post_response, "Secure")
+
+    def test_not_accept_optional(self):
+        """Validate that not accepting optional terms works"""
+
+        self._test_optional_common()
+
+        LOGGER.debug('Test /terms/accept/contrib-terms/5/ post')
+        deny_version_post_response = self.client.post('/terms/accept/', {'terms': 5, 'returnTo': '/secure/',
+                                                                         'not_now': True},
+                                                        follow=True)
+        self.assertContains(deny_version_post_response, "Secure")
+
+    def test_first_not_accept_optional_then_accept_later(self):
+        """Validate that accepting optional terms works when accepting it later"""
+
+        self._test_optional_common()
+
+        LOGGER.debug('Test /terms/accept/contrib-terms/5/ post')
+        deny_version_post_response = self.client.post('/terms/accept/',
+                                                      {'terms': 5, 'returnTo': '/secure/', 'not_now': True},
+                                                        follow=True)
+        self.assertContains(deny_version_post_response, "Secure")
+
+        # now this should be listed (means "seen"), but not accepted in database
+        terms = UserTermsAndConditions.objects.get(user=self.user1, terms_id=5)
+        self.assertIsNone(terms.date_accepted)
+
+        # now accept
+        LOGGER.debug('Test /terms/accept/contrib-terms/5/ post')
+        accept_version_post_response = self.client.post('/terms/accept/', {'terms': 5, 'returnTo': '/secure/'},
+                                                      follow=True)
+        self.assertContains(accept_version_post_response, "Secure")
+
+        # now this should be accepted in database
+        terms = UserTermsAndConditions.objects.get(user=self.user1, terms_id=5)
+        self.assertIsNotNone(terms.date_accepted)
 
     def test_accept_store_ip_address(self):
         """Test with IP address storage setting true (default)"""
@@ -204,7 +276,9 @@ class TermsAndConditionsTests(TestCase):
     def test_terms_upgrade(self):
         """Validate a user is prompted to accept terms again when new version comes out"""
 
+        # Already accept some terms or makr as read
         UserTermsAndConditions.objects.create(user=self.user1, terms=self.terms2)
+        UserTermsAndConditions.objects.create(user=self.user1, terms=self.terms5, date_accepted=None)
 
         LOGGER.debug('Test user1 login pre upgrade')
         login_response = self.client.login(username='user1', password='user1password')
@@ -219,13 +293,30 @@ class TermsAndConditionsTests(TestCase):
         self.client.post('/terms/accept/', {'terms': 3, 'returnTo': '/secure/'}, follow=True)
 
         LOGGER.debug('Test upgrade terms')
-        self.terms5 = TermsAndConditions.objects.create(id=5, slug="site-terms", name="Site Terms",
+        self.terms7 = TermsAndConditions.objects.create(id=7, slug="site-terms", name="Site Terms",
                                                         text="Terms and Conditions2", version_number=2.5,
                                                         date_active="2012-02-05")
 
         LOGGER.debug('Test user1 is redirected when changing pages')
         post_upgrade_response = self.client.get('/secure/', follow=True)
         self.assertRedirects(post_upgrade_response, '/terms/accept/site-terms?returnTo=/secure/')
+
+        # Then accept site-terms ..
+        self.client.post('/terms/accept/', {'terms': 7, 'returnTo': '/secure/'}, follow=True)
+
+        # .. no redirection any more
+        before_new_optional_terms_response = self.client.get('/secure/', follow=True)
+        self.assertContains(before_new_optional_terms_response, "Secure")
+
+        # With new optional terms there should be a redirect again
+        self.terms8 = TermsAndConditions.objects.create(id=8, slug="optional-terms", name="Site Terms",
+                                                        text="Optional Terms and Conditions2", version_number=2.5,
+                                                        optional=True,
+                                                        date_active="2012-02-05")
+
+        LOGGER.debug('Test user1 is redirected when changing pages after optional terms have been upgraded')
+        post_upgrade_response = self.client.get('/secure/', follow=True)
+        self.assertRedirects(post_upgrade_response, '/terms/accept/optional-terms?returnTo=/secure/')
 
     def test_no_middleware(self):
         """Test a secure page with the middleware excepting it"""
@@ -324,9 +415,13 @@ class TermsAndConditionsTemplateTagsTestCase(TestCase):
             '{% load terms_tags %}'
             '{% include terms.text|as_template %}'
         )
+
         self.terms1 = TermsAndConditions.objects.create(id=1, slug="site-terms", name="Site Terms",
                                                         text="Site Terms and Conditions 1", version_number=1.0,
                                                         date_active="2012-01-01")
+        self.terms2 = TermsAndConditions.objects.create(id=2, slug="optional-terms", name="Optional Terms",
+                                                        text="Optional Terms and Conditions 1", version_number=1.0,
+                                                        date_active="2012-02-01", optional=True)
         cache.clear()
 
     def _make_context(self, url):
@@ -344,14 +439,14 @@ class TermsAndConditionsTemplateTagsTestCase(TestCase):
         request.context = context or {}
         return Template(string).render(Context({'request': request}))
 
-    def test_show_terms_if_not_agreed(self):
-        """test if show_terms_if_not_agreed template tag renders html code"""
+    def test_show_terms_if_not_agreed_to_mandatory(self):
+        """test if show_terms_if_not_agreed template tag renders html code for mandatory terms"""
         LOGGER.debug('Test template tag not showing terms if not agreed to')
         rendered = self.render_template(self.template_string_1)
         terms = TermsAndConditions.get_active()
         self.assertIn(terms.slug, rendered)
 
-    def test_not_show_terms_if_agreed(self):
+    def test_not_show_terms_if_agreed_to_mandatory(self):
         """test if show_terms_if_not_agreed template tag does not load if user agreed terms"""
         LOGGER.debug('Test template tag not showing terms once agreed to')
         terms = TermsAndConditions.get_active()
@@ -359,10 +454,33 @@ class TermsAndConditionsTemplateTagsTestCase(TestCase):
         rendered = self.render_template(self.template_string_1)
         self.assertNotIn(terms.slug, rendered)
 
+    def test_show_terms_if_not_agreed_to_optional_not_seen_yet(self):
+        """test if show_terms_if_not_agreed template tag renders html code for optional terms not having been seen"""
+        LOGGER.debug('Test template tag showing optional terms if not agreed to and not seen yet')
+        rendered = self.render_template(self.template_string_1)
+        terms = TermsAndConditions.get_active('optional-terms')
+        self.assertIn(terms.slug, rendered)
+
+    def test_not_show_terms_if_not_agreed_to_optional_already_seen(self):
+        """test if show_terms_if_not_agreed template tag does not load if user has seen optional terms but didn't agree"""
+        LOGGER.debug('Test template tag not showing optional terms not agreed to but already seen')
+        terms = TermsAndConditions.get_active('optional-terms')
+        UserTermsAndConditions.objects.create(terms=terms, user=self.user1) # seen, but not accepted
+        rendered = self.render_template(self.template_string_1)
+        self.assertNotIn(terms.slug, rendered)
+
+    def test_not_show_terms_if_agreed_to_optional_already_seen(self):
+        """test if show_terms_if_not_agreed template tag does not load if user agreed optional terms"""
+        LOGGER.debug('Test template tag not showing optional terms once agreed to')
+        terms = TermsAndConditions.get_active('optional-terms')
+        UserTermsAndConditions.objects.create(terms=terms, user=self.user1)
+        rendered = self.render_template(self.template_string_1)
+        self.assertNotIn(terms.slug, rendered)
+
     def test_show_terms_if_not_agreed_on_protected_url_not_agreed(self):
         """Check terms on protected url if not agreed"""
         context = self._make_context('/test')
-        result = show_terms_if_not_agreed(context)
+        result = show_terms_if_not_agreed(context, skip_optional=True)
         terms = TermsAndConditions.get_active(slug=DEFAULT_TERMS_SLUG)
         self.assertEqual(result.get('not_agreed_terms')[0], terms)
 
