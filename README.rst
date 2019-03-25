@@ -2,29 +2,29 @@
 Django Terms and Conditions
 ===========================
 
-.. image:: https://badge.fury.io/py/django-termsandconditions.svg
-    :target: http://badge.fury.io/py/django-termsandconditions
-    :alt: PyPi Package Version
+.. .. image:: https://badge.fury.io/py/django-termsandconditions.svg
+..     :target: http://badge.fury.io/py/django-termsandconditions
+..     :alt: PyPi Package Version
 
-.. image:: https://travis-ci.org/cyface/django-termsandconditions.svg?branch=master
-    :target: https://travis-ci.org/cyface/django-termsandconditions
-    :alt: Travis Build Status
+.. .. image:: https://travis-ci.org/cyface/django-termsandconditions.svg?branch=master
+..     :target: https://travis-ci.org/cyface/django-termsandconditions
+..     :alt: Travis Build Status
 
-.. image:: https://coveralls.io/repos/github/cyface/django-termsandconditions/badge.svg?branch=master
-    :target: https://coveralls.io/github/cyface/django-termsandconditions?branch=master
-    :alt: Coveralls Code Coverage
+.. .. image:: https://coveralls.io/repos/github/cyface/django-termsandconditions/badge.svg?branch=master
+..     :target: https://coveralls.io/github/cyface/django-termsandconditions?branch=master
+..     :alt: Coveralls Code Coverage
 
-.. image:: https://scrutinizer-ci.com/g/cyface/django-termsandconditions/badges/quality-score.png?b=master
-    :target: https://scrutinizer-ci.com/g/cyface/django-termsandconditions/
-    :alt: Scrutinizer Code Quality
+.. .. image:: https://scrutinizer-ci.com/g/cyface/django-termsandconditions/badges/quality-score.png?b=master
+..     :target: https://scrutinizer-ci.com/g/cyface/django-termsandconditions/
+..     :alt: Scrutinizer Code Quality
 
-.. image:: https://readthedocs.org/projects/django-termsandconditions/badge/?version=latest
-    :target: http://django-termsandconditions.readthedocs.org/en/latest/?badge=latest
-    :alt: Documentation Status
+.. .. image:: https://readthedocs.org/projects/django-termsandconditions/badge/?version=latest
+..     :target: http://django-termsandconditions.readthedocs.org/en/latest/?badge=latest
+..     :alt: Documentation Status
     
-.. image:: https://pyup.io/repos/github/cyface/django-termsandconditions/shield.svg
-     :target: https://pyup.io/repos/github/cyface/django-termsandconditions/
-     :alt: Updates
+.. .. image:: https://pyup.io/repos/github/cyface/django-termsandconditions/shield.svg
+..      :target: https://pyup.io/repos/github/cyface/django-termsandconditions/
+..      :alt: Updates
 
 Django Terms and Conditions gives you an configurable way to send users to a T&C acceptance page before they
 can access the site.
@@ -42,11 +42,23 @@ Features
 
 This module is meant to be as quick to integrate as possible, and thus extensive customization will likely benefit from a fork. That said, a number of options are available. Currently, the app allows for
 
-- terms-and-conditions versioning (via version_number)
-- multiple terms-and-conditions allowed (via slug field)
+- terms-and-conditions versioning (via `version_number` field)
+- multiple terms-and-conditions allowed (via `slug` field)
+- terms can be mandatory or optional (via `optional` field)
 - per-user terms-and-conditions acceptance
 - middleware to take care of redirecting to proper terms-and-conditions acceptance page upon the version change
 - multi-language support
+
+Caution
+=======
+
+This is a fork of the original package in order to have optional conditions, so the original
+notion of the table `UserTermsAndConditions` changed and also the database schema.
+
+In the original package, an entry in this table means "use has seen and accepted the terms" and
+the field `date_accepted` always had a date and time. In this fork here the meaning is only "user has seen the terms".
+The field `date_accepted` can be NULL which denotes that the user hasn't accepted yet.
+When the user accepts later, this field gets a non-NULL datetime value as in the original version.
 
 Installation
 ============
