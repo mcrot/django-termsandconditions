@@ -20,8 +20,7 @@ def show_terms_if_not_agreed(context, field=TERMS_HTTP_PATH_FIELD, skip_optional
     who requested the view has not yet agreed the terms. The snippet takes
     care of displaying a respective modal.
 
-    If skip_optional is False, also optional terms will be shown.
-    Default is True, i.e. not to show optional terms.
+    If skip_optional is False, also optional terms will be shown. This is the default.
     """
 
     request = context['request']
