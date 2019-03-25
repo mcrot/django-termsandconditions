@@ -88,6 +88,12 @@ class TermsAndConditionsTests(TestCase):
         self.assertEqual(2, len(active_list))
         self.assertQuerysetEqual(active_list, [repr(self.terms3), repr(self.terms2)])
 
+    def test_get_active_terms_not_agreed_to_including_optional(self):
+        """Test get mandatory T&Cs not agreed to"""
+        active_list = TermsAndConditions.get_active_terms_not_agreed_to(self.user1, skip_optional=False)
+        self.assertEqual(3, len(active_list))
+        self.assertQuerysetEqual(active_list, [repr(self.terms3), repr(self.terms2), repr(self.terms5)])
+
     def test_user_is_excluded(self):
         """Test user3 has perm which excludes them from having to accept T&Cs"""
         active_list = TermsAndConditions.get_active_terms_not_agreed_to(self.user3)

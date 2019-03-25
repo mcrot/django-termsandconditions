@@ -182,7 +182,13 @@ class TermsAndConditions(models.Model):
 
                 not_agreed_terms = not_agreed_terms.exclude(optional_cond)
 
-                not_agreed_terms = not_agreed_terms.order_by('slug')
+                #
+                # We want to have all optional terms at the end
+                #
+                not_agreed_terms = not_agreed_terms.order_by('optional', 'slug')
+                if not_agreed_terms and not_agreed_terms.first().optional:
+                    # Workaround: depending on the database backend, True comes first when sorting for boolean field
+                    not_agreed_terms = not_agreed_terms.order_by('-optional', 'slug')
 
                 cache.set('tandc.not_agreed_terms_' + user.get_username() + cache_key_suffix,
                           not_agreed_terms, TERMS_CACHE_SECONDS)
