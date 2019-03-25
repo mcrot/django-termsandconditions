@@ -450,7 +450,7 @@ class TermsAndConditionsTemplateTagsTestCase(TestCase):
         """test if show_terms_if_not_agreed template tag does not load if user agreed terms"""
         LOGGER.debug('Test template tag not showing terms once agreed to')
         terms = TermsAndConditions.get_active()
-        UserTermsAndConditions.objects.create(terms=terms, user=self.user1)
+        UserTermsAndConditions.objects.create(terms=terms, user=self.user1) # seen and accpeted
         rendered = self.render_template(self.template_string_1)
         self.assertNotIn(terms.slug, rendered)
 
@@ -465,7 +465,7 @@ class TermsAndConditionsTemplateTagsTestCase(TestCase):
         """test if show_terms_if_not_agreed template tag does not load if user has seen optional terms but didn't agree"""
         LOGGER.debug('Test template tag not showing optional terms not agreed to but already seen')
         terms = TermsAndConditions.get_active('optional-terms')
-        UserTermsAndConditions.objects.create(terms=terms, user=self.user1) # seen, but not accepted
+        UserTermsAndConditions.objects.create(terms=terms, user=self.user1, date_accepted=None) # seen, but NOT accepted
         rendered = self.render_template(self.template_string_1)
         self.assertNotIn(terms.slug, rendered)
 
@@ -473,7 +473,7 @@ class TermsAndConditionsTemplateTagsTestCase(TestCase):
         """test if show_terms_if_not_agreed template tag does not load if user agreed optional terms"""
         LOGGER.debug('Test template tag not showing optional terms once agreed to')
         terms = TermsAndConditions.get_active('optional-terms')
-        UserTermsAndConditions.objects.create(terms=terms, user=self.user1)
+        UserTermsAndConditions.objects.create(terms=terms, user=self.user1) # seen and accepted
         rendered = self.render_template(self.template_string_1)
         self.assertNotIn(terms.slug, rendered)
 
